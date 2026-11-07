@@ -1,0 +1,6 @@
+name,age,score,subscribed,joined,notes
+"Doe, Jane",34,88.5,yes,2024-03-01,first order
+John Smith,,72.0,no,2024-03-02,
+"Doe, Jane",34,88.5,yes,2024-03-01,first order
+Priya Patel,29,91,TRUE,2024-03-05,repeat customer
+Sam Lee,41,,false,not-a-date,extra,field
