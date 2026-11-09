@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>csv-data-doctor</title>
+<style>
+*{box-sizing:border-box} body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;background:#f6f8fb;color:#17233b}
+header{background:#0b1f3a;color:#fff;padding:28px 20px;border-bottom:4px solid #d4a72c}
+header .wrap, main{max-width:900px;margin:0 auto}
+header h1{margin:0 0 6px;font-size:28px} header p{margin:0;color:#cfd9e8}
+main{padding:22px 16px 40px}
+.card{background:#fff;border-radius:12px;padding:20px;box-shadow:0 2px 10px rgba(11,31,58,.08)}
+label{font-weight:600;display:block;margin:14px 0 6px}
+textarea{width:100%;min-height:170px;padding:10px;border:1px solid #c9d3e0;border-radius:8px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px}
+input[type=text],input[type=number],input[type=date],select{padding:8px 10px;border:1px solid #c9d3e0;border-radius:8px;max-width:100%}
+.row{display:flex;flex-wrap:wrap;gap:14px} .row>div{flex:1 1 180px}
+button{background:#0b1f3a;color:#fff;border:0;border-radius:8px;padding:10px 18px;cursor:pointer;font-size:15px}
+button.accent{background:#d4a72c;color:#17233b;font-weight:700}
+button.secondary{background:#e7edf5;color:#0b1f3a}
+.btns{display:flex;flex-wrap:wrap;gap:10px;margin-top:16px}
+pre{background:#0b1f3a;color:#eef3fa;border-radius:10px;padding:16px;overflow:auto;white-space:pre-wrap;min-height:120px;font-size:13px}
+footer{max-width:900px;margin:0 auto;padding:0 16px 30px;color:#5a6a82;font-size:14px}
+a{color:#0b1f3a}
+.note{color:#5a6a82;font-size:13px}
+</style>
+</head>
+<body>
+<header><div class="wrap"><h1>csv-data-doctor</h1><p>Profile any CSV file locally: row and column counts, missing values, distinct counts, inferred types, numeric stats, duplicate rows, wrong-length rows, and entirely empty columns.</p></div></header>
+<main>
+<div class="card">
+<label for="file">Choose a file</label>
+<input type="file" id="file" >
+<label for="input">CSV input</label>
+<textarea id="input" placeholder="Paste input here, choose a file, or load the sample."></textarea>
+
+<div class="row"><div><label for="delimiter">Delimiter (CLI --delimiter, default comma; type \t for tab)</label><input type="text" id="delimiter" value=","></div>
+<div><label for="fname">File label shown in the report</label><input type="text" id="fname" value="input.csv"></div></div>
+<div class="btns">
+<button class="accent" id="run">Run</button>
+<button class="secondary" id="sample">Load sample</button>
+<button class="secondary" id="sample2">Load clean sample</button>
+<button class="secondary" id="download">Download report</button>
+</div>
+<label for="output">Report</label>
+<pre id="output">Press Run to see the report.</pre>
+</div>
+</main>
+<footer>
+<p>Built by AamirTechs. <a href="https://aamirtechs.github.io/">All tools</a> | <a href="https://github.com/aamirtechs/csv-data-doctor">Source</a></p>
+<p>Privacy: this tool runs 100% in your browser, nothing is uploaded.</p>
+</footer>
+<script id="core">
+
+function stripBOM(t){ if(t.charCodeAt(0)===0xFEFF) return t.slice(1); return t; }
+function parseCsv(text, delim){
+  var rows=[], row=[], field="", inQ=false, rowStarted=false, i=0, c;
+  function endField(){ row.push(field); field=""; }
+  function endRow(){ endField(); rows.push(row); row=[]; rowStarted=false; }
+  text = stripBOM(text);
+  while(i<text.length){
+    c=text[i];
+    if(inQ){
+      if(c==='"'){ if(text[i+1]==='"'){ field+='"'; i+=2; continue; } inQ=false; i++; continue; }
+      field+=c; i++; continue;
+    }
+    if(c==='"' && field===""){ inQ=true; rowStarted=true; i++; continue; }
+    if(c===delim){ endField(); rowStarted=true; i++; continue; }
+    if(c==='\r'){ if(text[i+1]==='\n') i++; endRow(); i++; continue; }
+    if(c==='\n'){ endRow(); i++; continue; }
+    field+=c; rowStarted=true; i++;
+  }
+  if(rowStarted || field!=="" || row.length>0){ endField(); rows.push(row); }
+  return rows;
+}
+function isRealDate(y,m,d){ if(m<1||m>12||d<1) return false; var leap=(y%4===0&&y%100!==0)||y%400===0; var dim=[31,leap?29:28,31,30,31,30,31,31,30,31,30,31]; return d<=dim[m-1]; }
+function classifyValue(value){
+  var text=value.trim();
+  if(/^[+-]?\d+$/.test(text)) return "integer";
+  var low=text.toLowerCase();
+  if(["true","false","yes","no"].indexOf(low)>=0) return "boolean";
+  var dm=/^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(text);
+  if(dm && isRealDate(+dm[1],+dm[2],+dm[3])) return "date";
+  if(["nan","inf","+inf","-inf","infinity"].indexOf(low)>=0) return "string";
+  if(/^[+-]?(infinity|inf|nan)$/i.test(text)) return "float";
+  if(/^[+-]?(\d[\d_]*\.?[\d_]*|\.\d[\d_]*)([eE][+-]?[\d_]+)?$/.test(text)) return "float";
+  return "string";
+}
+function inferType(values){
+  if(!values.length) return "string";
+  var seen={}, classes=[];
+  values.forEach(function(v){ var cl=classifyValue(v); if(!seen[cl]){ seen[cl]=1; classes.push(cl); } });
+  if(classes.length===1) return classes[0];
+  if(classes.every(function(c){ return c==="integer"||c==="float"; })) return "float";
+  return "mixed";
+}
+function roundTo(v,p){ var f=Math.pow(10,p); return Math.round(v*f)/f; }
+function pyFloatStr(v){ if(Number.isInteger(v)) return v+".0"; return String(v); }
+function formatNumber(v){ if(Number.isInteger(v)) return String(v); return v.toFixed(4).replace(/0+$/,"").replace(/\.$/,""); }
+window.runTool = function(inputText, options){
+  options = options || {};
+  var delim = options.delimiter || ",";
+  if(delim==="\\t") delim="\t";
+  if(delim.length!==1) return "error: --delimiter must be a single character";
+  var label = options.fileName || "input.csv";
+  var rows = parseCsv(String(inputText==null?"":inputText), delim);
+  if(!rows.length) return "error: file is empty: no header row found";
+  var header=rows[0], colCount=header.length, dataRows=rows.slice(1);
+  var wrong=[], good=[];
+  dataRows.forEach(function(row,idx){ if(row.length!==colCount) wrong.push(idx+2); else good.push(row); });
+  var seenKeys={}, dup=0;
+  dataRows.forEach(function(row){ var k=JSON.stringify(row); if(seenKeys[k]) dup++; else seenKeys[k]=1; });
+  var cols=[], emptyCols=[];
+  header.forEach(function(name,ci){
+    var values=good.map(function(r){ return r[ci]; });
+    var nonMissing=values.filter(function(v){ return v.trim()!==""; });
+    var missing=values.length-nonMissing.length;
+    var pct = values.length ? roundTo(100.0*missing/values.length,2) : 0.0;
+    var type=inferType(nonMissing);
+    var distinct={}; nonMissing.forEach(function(v){ distinct[v]=1; });
+    var line="  "+name+": type="+type+", missing="+missing+" ("+pyFloatStr(pct)+"%), distinct="+Object.keys(distinct).length;
+    if(type==="integer"||type==="float"){
+      var nums=nonMissing.map(function(v){ return parseFloat(v.replace(/_/g,"")); });
+      var mean=roundTo(nums.reduce(function(a,b){return a+b;},0)/nums.length,4);
+      line+=", min="+formatNumber(Math.min.apply(null,nums))+", max="+formatNumber(Math.max.apply(null,nums))+", mean="+formatNumber(mean);
+    }
+    if(!nonMissing.length) emptyCols.push(name);
+    cols.push(line);
+  });
+  var lines=[];
+  var title="CSV profile: "+label;
+  lines.push(title); lines.push("=".repeat(title.length));
+  lines.push("Rows: "+dataRows.length);
+  lines.push("Columns: "+colCount);
+  lines.push("Duplicate rows: "+dup);
+  if(wrong.length) lines.push("Rows with wrong field count: "+wrong.length+" (row numbers: "+wrong.join(", ")+")");
+  else lines.push("Rows with wrong field count: 0");
+  lines.push(emptyCols.length ? "Entirely empty columns: "+emptyCols.join(", ") : "Entirely empty columns: none");
+  lines.push(""); lines.push("Columns:");
+  lines=lines.concat(cols);
+  return lines.join("\n");
+};
+
+</script>
+<script>
+var SAMPLE = `name,age,score,subscribed,joined,notes
+"Doe, Jane",34,88.5,yes,2024-03-01,first order
+John Smith,,72.0,no,2024-03-02,
+"Doe, Jane",34,88.5,yes,2024-03-01,first order
+Priya Patel,29,91,TRUE,2024-03-05,repeat customer
+Sam Lee,41,,false,not-a-date,extra,field
+`;
+var SAMPLE_NAME = "messy.csv";
+var pickedName = "";
+var inputEl = document.getElementById("input");
+var outputEl = document.getElementById("output");
+document.getElementById("file").addEventListener("change", function(ev){
+  var f = ev.target.files[0]; if(!f) return; pickedName = f.name;
+  var r = new FileReader(); r.onload = function(){ inputEl.value = r.result; document.getElementById("fname").value = f.name; }; r.readAsText(f);
+});
+function gatherOptions(){ return { delimiter: document.getElementById("delimiter").value || ",", fileName: document.getElementById("fname").value || pickedName || "input.csv" }; }
+document.getElementById("run").addEventListener("click", function(){
+  try { outputEl.textContent = window.runTool(inputEl.value, gatherOptions()); }
+  catch(e){ outputEl.textContent = "Error: " + e.message; }
+});
+document.getElementById("sample").addEventListener("click", function(){
+  inputEl.value = SAMPLE; pickedName = SAMPLE_NAME;
+  if (window.onSample) window.onSample(); document.getElementById("fname").value = pickedName === "messy.csv" ? "examples/messy.csv" : (pickedName === "clean.csv" ? "examples/clean.csv" : pickedName);
+});
+document.getElementById("download").addEventListener("click", function(){
+  var blob = new Blob([outputEl.textContent], {type:"text/plain"});
+  var a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "report.txt"; a.click(); URL.revokeObjectURL(a.href);
+});
+document.getElementById("sample2").addEventListener("click", function(){ inputEl.value = CLEAN_SAMPLE; pickedName = "clean.csv"; document.getElementById("fname").value = "examples/clean.csv"; });
+var CLEAN_SAMPLE = `name,age,score,subscribed,joined
+Jane Doe,34,88.5,yes,2024-03-01
+John Smith,28,72.0,no,2024-03-02
+Priya Patel,29,91,true,2024-03-05
+`;
+</script>
+</body>
+</html>

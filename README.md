@@ -1,4 +1,5 @@
 # csv-data-doctor
+**Live tool:** https://aamirtechs.github.io/csv-data-doctor/ (runs in your browser, no install)
 
 Profile any CSV file fully locally: row and column counts, missing
 values, distinct counts, inferred types, numeric stats, duplicate
